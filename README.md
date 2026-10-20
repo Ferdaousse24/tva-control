@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Contrôle de la TVA trimestrielle (Maroc)
 
 Application web qui **lit** les factures (PDF, photo, scan), **calcule** la TVA du trimestre et la **compare** avec la déclaration du comptable.
@@ -68,3 +69,6 @@ backend/   API FastAPI : tva.py (calculs), extraction.py (lecture), checks.py, d
 frontend/  React + Vite : un fichier par écran dans src/pages
 samples/   factures d'exemple (fictives) ; scripts/ : générateur, sauvegarde
 ```
+=======
+# tva-control
+>>>>>>> b6f16949e1d1b6eeac338b2b5010cc0a09be8259
