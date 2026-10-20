@@ -58,7 +58,7 @@ Les factures exemples sont régénérables : `python scripts/make_samples.py`.
 | Comparaison déclaré / recalculé, origine de l'écart, N-1, rapport PDF | Lecture automatique du PDF de la déclaration du comptable (saisie manuelle) |
 
 ## Mise en ligne
-Voir **DEPLOIEMENT.md** (Oracle Cloud gratuit, HTTPS automatique, sauvegarde quotidienne).
+Sans carte bancaire : **DEPLOIEMENT-RENDER.md** (Supabase + Render). Avec serveur Oracle : **DEPLOIEMENT.md**.
 
 ## Avant toute mise en ligne
 - Définir `APP_PASSWORD` (sinon l'application est ouverte à tous).

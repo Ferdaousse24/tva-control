@@ -1,0 +1,22 @@
+# Blueprint Render : l'application complète (écrans + serveur) dans un seul service gratuit.
+services:
+  - type: web
+    name: tva-controle
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: STORE_FILES_IN_DB
+        value: "1"
+      - key: APP_USER
+        value: hamza
+      - key: COMPANY_NAME
+        value: CBS TECH MAROC
+      - key: DATABASE_URL      # à coller : adresse Supabase (Session pooler)
+        sync: false
+      - key: APP_PASSWORD      # à choisir : mot de passe d'accès
+        sync: false
+      - key: COMPANY_ICE       # à compléter
+        sync: false

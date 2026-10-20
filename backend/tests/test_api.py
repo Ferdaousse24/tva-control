@@ -131,3 +131,17 @@ def test_very_long_values_do_not_crash(client):
     iid = r.json()["id"]
     assert client.patch(f"/api/invoices/{iid}", json={"number": "N" * 500}).status_code == 422
     assert client.patch(f"/api/invoices/{iid}", json={"party_name": "Z" * 150}).status_code == 200
+
+
+def test_file_survives_disk_loss_when_stored_in_db(client, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "STORE_FILES_IN_DB", True)
+    with open(S / "vente_0405.pdf", "rb") as f:
+        r = client.post("/api/invoices/upload", data={"direction": "vente"}, files={"file": ("a.pdf", f.read())})
+    iid = r.json()["id"]
+    from app.db import SessionLocal
+    from app.models import Invoice
+    with SessionLocal() as db:
+        Path(db.get(Invoice, iid).file_path).unlink()  # le disque temporaire a été vidé
+    got = client.get(f"/api/invoices/{iid}/file")
+    assert got.status_code == 200 and got.content.startswith(b"%PDF")

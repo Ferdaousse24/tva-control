@@ -1,6 +1,6 @@
 from datetime import datetime, date as DateType, timezone
 from decimal import Decimal
-from sqlalchemy import String, Integer, Date, DateTime, Numeric, JSON, Text, Boolean, UniqueConstraint
+from sqlalchemy import String, Integer, Date, DateTime, Numeric, JSON, Text, Boolean, UniqueConstraint, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -74,3 +74,10 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(40))
     target: Mapped[str] = mapped_column(String(255), default="")
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class FileBlob(Base):
+    """Copie du fichier source en base (hébergeurs dont le disque est temporaire, ex. Render gratuit)."""
+    __tablename__ = "file_blobs"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)

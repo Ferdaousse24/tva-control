@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 from fastapi.encoders import jsonable_encoder
 from . import checks, tva, config, extraction, duplicates
-from .models import Invoice, Quarter, Declaration, AuditLog
+from .models import Invoice, Quarter, Declaration, AuditLog, FileBlob
 
 
 def audit(db: Session, action: str, target: str = "", **detail):
@@ -113,6 +113,8 @@ def ingest(db: Session, filename: str, content: bytes, direction: str) -> Invoic
     sha = sha256_bytes(content)
     path = config.UPLOAD_DIR / f"{sha}{ext}"
     path.write_bytes(content)
+    if config.STORE_FILES_IN_DB and not db.get(FileBlob, sha):
+        db.add(FileBlob(sha256=sha, content=content))
     try:
         res = extraction.extract(path, direction)
     except Exception as e:  # un fichier illisible ne doit pas bloquer les autres

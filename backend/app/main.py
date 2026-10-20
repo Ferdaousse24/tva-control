@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from . import config, extraction, tva, compare as cmp_mod, report, duplicates
 from .db import Base, engine, get_db
-from .models import Quarter, Invoice, Declaration, AuditLog
+from .models import Quarter, Invoice, Declaration, AuditLog, FileBlob
 from .services import (audit, ingest, serialize, refresh_issues, invoices_of_quarter, calc_for,
                        credit_anterieur, inv_dict)
 
@@ -125,10 +125,14 @@ def get_invoice(iid: int, db: Session = Depends(get_db)):
 def invoice_file(iid: int, db: Session = Depends(get_db)):
     inv = _invoice(db, iid)
     p = Path(inv.file_path)
-    if not p.exists():
-        raise HTTPException(404, "Fichier source introuvable")
     media = {".pdf": "application/pdf", ".png": "image/png"}.get(p.suffix.lower(), "image/jpeg")
-    return FileResponse(p, media_type=media, headers={"Content-Disposition": f'inline; filename="{inv.filename}"'})
+    headers = {"Content-Disposition": f'inline; filename="{inv.filename}"'}
+    if p.exists():
+        return FileResponse(p, media_type=media, headers=headers)
+    blob = db.get(FileBlob, inv.sha256)  # disque vidé (redémarrage) : on relit la copie en base
+    if not blob:
+        raise HTTPException(404, "Fichier source introuvable")
+    return Response(blob.content, media_type=media, headers=headers)
 
 
 MAXLEN = {"number": 80, "party_name": 200, "party_ice": 30, "pay_mode": 20}
