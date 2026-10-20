@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Contrôle de la TVA trimestrielle (Maroc)
 
 Application web qui **lit** les factures (PDF, photo, scan), **calcule** la TVA du trimestre et la **compare** avec la déclaration du comptable.
@@ -58,6 +57,9 @@ Les factures exemples sont régénérables : `python scripts/make_samples.py`.
 | Fait générateur à l'encaissement, prorata, plafonds espèces, arrondi au dirham | Comptes utilisateurs (un seul mot de passe partagé pour l'instant) |
 | Comparaison déclaré / recalculé, origine de l'écart, N-1, rapport PDF | Lecture automatique du PDF de la déclaration du comptable (saisie manuelle) |
 
+## Mise en ligne
+Voir **DEPLOIEMENT.md** (Oracle Cloud gratuit, HTTPS automatique, sauvegarde quotidienne).
+
 ## Avant toute mise en ligne
 - Définir `APP_PASSWORD` (sinon l'application est ouverte à tous).
 - Choisir un hébergement avec sauvegarde de la base (`scripts/backup.sh` fait une sauvegarde manuelle).
@@ -69,6 +71,3 @@ backend/   API FastAPI : tva.py (calculs), extraction.py (lecture), checks.py, d
 frontend/  React + Vite : un fichier par écran dans src/pages
 samples/   factures d'exemple (fictives) ; scripts/ : générateur, sauvegarde
 ```
-=======
-# tva-control
->>>>>>> b6f16949e1d1b6eeac338b2b5010cc0a09be8259

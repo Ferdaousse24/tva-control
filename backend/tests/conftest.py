@@ -3,7 +3,8 @@ from pathlib import Path
 
 TMP = tempfile.mkdtemp(prefix="tva-test-")
 os.environ["DATA_DIR"] = TMP
-os.environ["DATABASE_URL"] = f"sqlite:///{TMP}/test.db"
+# Pour tester sur PostgreSQL : définir DATABASE_URL avant de lancer pytest (sinon SQLite temporaire)
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{TMP}/test.db")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest

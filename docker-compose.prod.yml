@@ -1,0 +1,58 @@
+# Mise en ligne : base PostgreSQL + application + HTTPS automatique (Caddy).
+# Lancement : docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tva
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: tva
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tva -d tva"]
+      interval: 10s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://tva:${POSTGRES_PASSWORD}@db:5432/tva
+      APP_USER: ${APP_USER:-hamza}
+      APP_PASSWORD: ${APP_PASSWORD:?définir APP_PASSWORD dans .env}
+      COMPANY_NAME: ${COMPANY_NAME:-CBS TECH MAROC}
+      COMPANY_ICE: ${COMPANY_ICE:-002345678000012}
+    volumes:
+      - uploads:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      retries: 3
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?définir DOMAIN dans .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  dbdata:
+  uploads:
+  caddy_data:
+  caddy_config:

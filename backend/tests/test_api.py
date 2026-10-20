@@ -122,3 +122,12 @@ def test_password_protection(client, monkeypatch):
     bad = {"Authorization": "Basic " + base64.b64encode(b"hamza:faux").decode()}
     assert client.get("/api/quarters", headers=ok).status_code == 200
     assert client.get("/api/quarters", headers=bad).status_code == 401
+
+
+def test_very_long_values_do_not_crash(client):
+    with open(S / "vente_0405.pdf", "rb") as f:
+        r = client.post("/api/invoices/upload", data={"direction": "vente"}, files={"file": ("x" * 200 + ".pdf", f.read())})
+    assert r.status_code == 200
+    iid = r.json()["id"]
+    assert client.patch(f"/api/invoices/{iid}", json={"number": "N" * 500}).status_code == 422
+    assert client.patch(f"/api/invoices/{iid}", json={"party_name": "Z" * 150}).status_code == 200

@@ -72,5 +72,5 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     action: Mapped[str] = mapped_column(String(40))
-    target: Mapped[str] = mapped_column(String(80), default="")
+    target: Mapped[str] = mapped_column(String(255), default="")
     detail: Mapped[dict] = mapped_column(JSON, default=dict)

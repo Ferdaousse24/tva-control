@@ -131,6 +131,7 @@ def invoice_file(iid: int, db: Session = Depends(get_db)):
     return FileResponse(p, media_type=media, headers={"Content-Disposition": f'inline; filename="{inv.filename}"'})
 
 
+MAXLEN = {"number": 80, "party_name": 200, "party_ice": 30, "pay_mode": 20}
 EDITABLE = ("number", "date", "party_name", "party_ice", "categorie", "pay_mode", "paid_date", "paid_amount",
             "total_ht", "total_tva", "total_ttc", "lines", "direction")
 
@@ -141,6 +142,8 @@ def _apply(inv: Invoice, body: dict):
         if k not in body:
             continue
         v = body[k]
+        if k in MAXLEN and isinstance(v, str) and len(v) > MAXLEN[k]:
+            raise HTTPException(422, f"{k} : {MAXLEN[k]} caractères maximum")
         if k in ("date", "paid_date"):
             v = date.fromisoformat(v) if v else None
         elif k in ("paid_amount", "total_ht", "total_tva", "total_ttc"):

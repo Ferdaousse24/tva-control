@@ -120,11 +120,12 @@ def ingest(db: Session, filename: str, content: bytes, direction: str) -> Invoic
         db.commit()
         raise ValueError(f"Lecture impossible : {e}")
     f = res["fields"]
+    filename = filename[:255]
     lines = [{"rate": l["rate"], "base_ht": str(l["base_ht"]), "tva": str(l["tva"])} for l in f.get("lines", [])]
     ttc = f.get("total_ttc", D(0))
     inv = Invoice(
         direction=direction, filename=filename, file_path=str(path), sha256=sha,
-        number=f.get("number", ""), date=f.get("date"), party_name=f.get("party_name", ""), party_ice=f.get("party_ice", ""),
+        number=f.get("number", "")[:80], date=f.get("date"), party_name=f.get("party_name", "")[:200], party_ice=f.get("party_ice", "")[:30],
         lines=lines, total_ht=f.get("total_ht", D(0)), total_tva=f.get("total_tva", D(0)), total_ttc=ttc,
         paid_date=f.get("paid_date"), paid_amount=f.get("paid_amount", ttc if f.get("paid_date") else D(0)),
         pay_mode=f.get("pay_mode", ""), confidence=res["confidence"], extraction_source=res["source"], status="a_verifier",

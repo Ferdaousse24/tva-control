@@ -1,0 +1,12 @@
+# Caddy obtient et renouvelle tout seul le certificat HTTPS pour le nom de domaine DOMAIN.
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 25MB
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+	reverse_proxy app:8000
+}
