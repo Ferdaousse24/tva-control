@@ -367,6 +367,18 @@ def demo_seed(db: Session = Depends(get_db)):
     return _json(seed(db))
 
 
+@app.post("/api/demo/reset")
+def demo_reset(db: Session = Depends(get_db)):
+    """Efface TOUTES les données puis recharge la démonstration (usage test uniquement)."""
+    from .seed import seed
+    from .models import FileBlob
+    for model in (Invoice, Declaration, Quarter, FileBlob):
+        db.query(model).delete()
+    audit(db, "demo_reset", "toutes les données")
+    db.commit()
+    return _json(seed(db))
+
+
 @app.get("/api/audit")
 def audit_log(limit: int = 200, db: Session = Depends(get_db)):
     rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(limit).all()

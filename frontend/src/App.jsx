@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api'
 import { QuarterCtx } from './ui.jsx'
 import Import from './pages/Import.jsx'
@@ -17,6 +17,8 @@ const NAV = [
 
 export default function App() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
   const [quarters, setQuarters] = useState(null)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(() => { try { return Number(localStorage.getItem('quarter')) || null } catch { return null } })
@@ -29,6 +31,23 @@ export default function App() {
   const quarter = quarters?.find((q) => q.id === selected) || quarters?.[0] || null
   const select = (id) => { setSelected(id); try { localStorage.setItem('quarter', String(id)) } catch { /* ignoré */ } }
 
+  const loadDemo = async () => {
+    setBusy(true)
+    try {
+      let r = await api.seed()
+      if (!r.seeded) {
+        const ok = window.prompt('Des données existent déjà. Pour TOUT effacer et recharger la démonstration, tapez EFFACER :')
+        if (ok !== 'EFFACER') return
+        r = await api.resetDemo()
+      }
+      const qs = await api.quarters()
+      setQuarters(qs)
+      const t2 = qs.find((q) => q.year === 2026 && q.q === 2)
+      if (t2) select(t2.id)
+      navigate('/')
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
   return (
     <QuarterCtx.Provider value={{ quarters, quarter, select, reload }}>
       <div className="app">
@@ -39,6 +58,7 @@ export default function App() {
               <Link key={i.n} to={i.to} className={i.match(pathname) ? 'on' : ''}><span className="n">{i.n}</span>{i.label}</Link>
             ))}
           </nav>
+          <button className="btn demo" disabled={busy} onClick={loadDemo}>{busy ? 'Chargement…' : 'Charger la démonstration'}</button>
           <div className="who"><b>Hamza</b><span>Casablanca · Régime trimestriel</span></div>
         </aside>
         <main className="main">

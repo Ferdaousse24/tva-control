@@ -27,4 +27,5 @@ export const api = {
   explain: (qid, key, comment) => req(`/quarters/${qid}/ecarts/${key}/expliquer`, json('POST', { comment })),
   rapport: (qid) => req(`/quarters/${qid}/rapport`),
   seed: () => req('/demo/seed', json('POST')),
+  resetDemo: () => req('/demo/reset', json('POST')),
 }

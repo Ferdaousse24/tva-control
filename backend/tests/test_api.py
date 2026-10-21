@@ -145,3 +145,10 @@ def test_file_survives_disk_loss_when_stored_in_db(client, monkeypatch):
         Path(db.get(Invoice, iid).file_path).unlink()  # le disque temporaire a été vidé
     got = client.get(f"/api/invoices/{iid}/file")
     assert got.status_code == 200 and got.content.startswith(b"%PDF")
+
+
+def test_demo_reset_replaces_existing_data(client):
+    assert client.post("/api/demo/seed").json()["seeded"] is True
+    assert client.post("/api/demo/seed").json()["seeded"] is False  # déjà des factures
+    r = client.post("/api/demo/reset")
+    assert r.status_code == 200 and r.json()["seeded"] is True
