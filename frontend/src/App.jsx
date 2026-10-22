@@ -65,12 +65,12 @@ export default function App() {
       <div className={`app ${pathname.startsWith('/factures') ? 'notab' : ''}`}>
         {pathname === '/' && (
           <header className="topbar only-m">
-            <div className="brand">{company?.raison_sociale || 'CBS TECH MAROC'}<small>Application trimestrielle · V1</small></div>
+            <div className="brand"><Logo name={company?.raison_sociale} /><small>Application trimestrielle · V1</small></div>
             <div className="avatar" aria-hidden="true">H</div>
           </header>
         )}
         <aside className="side">
-          <div className="brand">{company?.raison_sociale || 'CBS TECH MAROC'}<small>Application trimestrielle · V1</small></div>
+          <div className="brand"><Logo name={company?.raison_sociale} /><small>Application trimestrielle · V1</small></div>
           <nav className="nav">
             {NAV.map((i) => (
               <Link key={i.n} to={i.to} className={i.match(pathname) ? 'on' : ''}><span className="n">{i.n}</span><span className="lbl">{i.label}</span></Link>
@@ -122,10 +122,14 @@ export default function App() {
   )
 }
 
+function Logo({ name }) {
+  return <img className="logo" src="/logo.png" alt={name || 'CBS Tech'} width="256" height="100" />
+}
+
 function Wake({ error, onRetry }) {
   return (
     <div className="wake">
-      <div className="brand">CBS TECH MAROC</div>
+      <div className="brand"><Logo name="CBS Tech" /></div>
       <div className="spinner" role="status" aria-label="Chargement" />
       <h1>Réveil du serveur…</h1>
       <p>Le site gratuit s'endort après un moment d'inactivité. Le premier chargement peut prendre jusqu'à une minute. Vos données sont conservées.</p>
