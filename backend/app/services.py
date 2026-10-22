@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 from fastapi.encoders import jsonable_encoder
 from . import checks, tva, config, extraction, duplicates
-from .models import Invoice, Quarter, Declaration, AuditLog, FileBlob
+from sqlalchemy.orm import selectinload
+from .models import Invoice, Quarter, Declaration, AuditLog, FileBlob, Payment, Company
 
 
 def audit(db: Session, action: str, target: str = "", **detail):
@@ -21,9 +22,32 @@ def _num(x):
     return float(x) if x is not None else None
 
 
+PAY_MODES = ("", "virement", "cheque", "effet", "especes", "carte")
+
+
+def payments_view(inv: Invoice) -> list[dict]:
+    """Paiements de la facture. Sans ligne dédiée, on reprend le paiement unique (anciennes factures)."""
+    if inv.payments:
+        return [{"date": p.date, "amount": D(p.amount), "mode": p.mode or ""} for p in inv.payments]
+    if inv.paid_date and D(inv.paid_amount) > 0:
+        return [{"date": inv.paid_date, "amount": D(inv.paid_amount), "mode": inv.pay_mode or ""}]
+    return []
+
+
+def set_payments(inv: Invoice, items: list[dict]):
+    """Remplace les paiements et met à jour le résumé (date du dernier paiement, total payé, mode)."""
+    inv.payments.clear()
+    for p in sorted(items, key=lambda p: p["date"]):
+        inv.payments.append(Payment(date=p["date"], amount=D(p["amount"]), mode=p.get("mode", "")))
+    last = max(items, key=lambda p: p["date"]) if items else None
+    inv.paid_date = last["date"] if last else None
+    inv.paid_amount = sum((D(p["amount"]) for p in items), D(0))
+    inv.pay_mode = last.get("mode", "") if last else ""
+
+
 def inv_dict(inv: Invoice) -> dict:
     """Format commun pour les contrôles et le moteur de calcul."""
-    return {
+    return {"payments": payments_view(inv),
         "id": inv.id, "direction": inv.direction, "filename": inv.filename, "number": inv.number,
         "party_name": inv.party_name, "party_ice": inv.party_ice, "date": inv.date, "categorie": inv.categorie,
         "lines": inv.lines or [], "total_ht": D(inv.total_ht), "total_tva": D(inv.total_tva), "total_ttc": D(inv.total_ttc),
@@ -65,6 +89,8 @@ def serialize(inv: Invoice, full: bool = False) -> dict:
         "non_conforme": is_non_conforme(inv), "forced": bool(inv.forced_comment),
         "dup_of": inv.dup_of, "dup_kind": inv.dup_kind,
         "issues": inv.issues or [], "n_issues": len([i for i in (inv.issues or [])]),
+        "payments": [{"date": p["date"].isoformat(), "amount": _num(p["amount"]), "mode": p["mode"]} for p in payments_view(inv)],
+        "has_file": bool(inv.file_path), "manual": inv.extraction_source == "manuelle",
     }
     if full:
         out.update({
@@ -84,8 +110,9 @@ def display_status(inv: Invoice) -> str:
 
 def invoices_of_quarter(db: Session, year: int, q: int) -> list[Invoice]:
     start, end = tva.quarter_bounds(year, q)
-    rows = db.query(Invoice).all()
-    return [i for i in rows if (i.date and start <= i.date <= end) or (i.paid_date and start <= i.paid_date <= end)]
+    rows = db.query(Invoice).options(selectinload(Invoice.payments)).all()
+    return [i for i in rows if (i.date and start <= i.date <= end)
+            or any(start <= p["date"] <= end for p in payments_view(i))]
 
 
 def credit_anterieur(db: Session, year: int, q: int) -> D:
@@ -133,6 +160,8 @@ def ingest(db: Session, filename: str, content: bytes, direction: str) -> Invoic
         pay_mode=f.get("pay_mode", ""), confidence=res["confidence"], extraction_source=res["source"], status="a_verifier",
     )
     inv.original_values = jsonable_encoder(dict(f), custom_encoder={D: str})
+    if inv.paid_date and D(inv.paid_amount) > 0:
+        set_payments(inv, [{"date": inv.paid_date, "amount": inv.paid_amount, "mode": inv.pay_mode}])
     dup, kind = duplicates.find_duplicate(db.query(Invoice).all(), {**inv_dict(inv), "sha256": sha})
     if dup:
         inv.dup_of, inv.dup_kind = dup.id, kind
@@ -144,3 +173,37 @@ def ingest(db: Session, filename: str, content: bytes, direction: str) -> Invoic
     audit(db, "import", inv.filename, id=inv.id, sens=direction, source=res["source"], doublon=kind or None)
     db.commit()
     return inv
+
+
+# ------------------------------------------------------------- fiche entreprise
+COMPANY_FIELDS = ("raison_sociale", "forme_juridique", "adresse", "if_fiscal", "ice", "rc", "tribunal", "taxe_pro", "cnss")
+COMPANY_MAX = {"raison_sociale": 200, "forme_juridique": 50, "adresse": 300, "if_fiscal": 20, "ice": 15,
+               "rc": 40, "tribunal": 80, "taxe_pro": 30, "cnss": 30}
+
+
+def company_dict(db: Session) -> dict:
+    c = db.get(Company, 1)
+    if c:
+        out = {k: getattr(c, k) for k in COMPANY_FIELDS}
+        out["configured"] = True
+    else:  # valeurs par défaut (variables d'environnement) tant que la fiche n'est pas enregistrée
+        out = {k: "" for k in COMPANY_FIELDS}
+        out.update(raison_sociale=config.COMPANY_NAME, ice=config.COMPANY_ICE)
+        out["configured"] = False
+    out["complete"] = all(out[k].strip() for k in COMPANY_FIELDS)
+    return out
+
+
+def validate_company(body: dict) -> dict:
+    data = {k: str(body.get(k) or "").strip() for k in COMPANY_FIELDS}
+    errs = {}
+    for k, n in COMPANY_MAX.items():
+        if len(data[k]) > n:
+            errs[k] = f"{n} caractères maximum"
+    if not data["raison_sociale"]:
+        errs["raison_sociale"] = "La raison sociale est obligatoire"
+    if not (data["ice"].isdigit() and len(data["ice"]) == 15):
+        errs["ice"] = "L'ICE doit comporter exactement 15 chiffres"
+    if data["if_fiscal"] and not data["if_fiscal"].isdigit():
+        errs["if_fiscal"] = "L'identifiant fiscal doit être numérique"
+    return data, errs

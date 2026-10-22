@@ -152,3 +152,77 @@ def test_demo_reset_replaces_existing_data(client):
     assert client.post("/api/demo/seed").json()["seeded"] is False  # déjà des factures
     r = client.post("/api/demo/reset")
     assert r.status_code == 200 and r.json()["seeded"] is True
+
+
+# ------------------------------------------------ fiche entreprise, saisie manuelle, paiements
+def _manual(**kw):
+    body = {"direction": "vente", "number": "F-100", "date": "2026-05-10", "party_name": "Client SA", "party_ice": "001234567890123",
+            "lines": [{"rate": 20, "base_ht": 1000, "tva": 200}], "total_ht": 1000, "total_tva": 200, "total_ttc": 1200}
+    body.update(kw)
+    return body
+
+
+def test_company_card_validation_and_defaults(client):
+    c = client.get("/api/company").json()
+    assert c["configured"] is False and c["complete"] is False
+    bad = client.put("/api/company", json={"raison_sociale": "X", "ice": "123"})
+    assert bad.status_code == 422 and "15 chiffres" in bad.json()["detail"]
+    assert client.put("/api/company", json={"raison_sociale": "X", "ice": "001234567890123", "if_fiscal": "12AB"}).status_code == 422
+    ok = client.put("/api/company", json={"raison_sociale": "CBS TECH MAROC", "ice": "001234567890123", "if_fiscal": "40123456",
+                                          "forme_juridique": "SARL", "adresse": "Casablanca", "rc": "1", "tribunal": "Casablanca",
+                                          "taxe_pro": "1", "cnss": "1"})
+    assert ok.status_code == 200 and ok.json()["configured"] and ok.json()["complete"]
+    assert client.get("/api/company").json()["if_fiscal"] == "40123456"
+
+
+def test_manual_invoice_creates_quarter_and_is_counted_when_validated(client):
+    r = client.post("/api/invoices/manual", json=_manual(validate=True, payments=[{"date": "2026-05-20", "amount": 1200, "mode": "virement"}]))
+    assert r.status_code == 200
+    inv = r.json()
+    assert inv["status"] == "validee" and inv["manual"] and not inv["has_file"] and inv["paid_amount"] == 1200
+    calc = client.get(f"/api/quarters/{inv['quarter_id']}/calcul").json()
+    assert calc["collectee"]["tva"] == 200
+    assert client.get(f"/api/invoices/{inv['id']}/file").status_code == 404
+
+
+def test_manual_invoice_requires_date_and_flags_duplicates(client):
+    assert client.post("/api/invoices/manual", json=_manual(date="")).status_code == 422
+    a = client.post("/api/invoices/manual", json=_manual()).json()
+    b = client.post("/api/invoices/manual", json=_manual()).json()
+    assert a["status"] == "a_verifier" and b["status"] == "doublon_detecte" and b["dup_of"] == a["id"]
+
+
+def test_partial_payments_split_across_quarters_via_api(client):
+    r = client.post("/api/invoices/manual", json=_manual(validate=True, payments=[
+        {"date": "2026-06-20", "amount": 600, "mode": "virement"}, {"date": "2026-07-15", "amount": 600, "mode": "virement"}])).json()
+    qs = {q["label"]: q["id"] for q in client.get("/api/quarters").json()}
+    assert client.get(f"/api/quarters/{qs['T2 2026']}/calcul").json()["collectee"]["tva"] == 100
+    client.post("/api/quarters", json={"year": 2026, "q": 3})
+    qs = {q["label"]: q["id"] for q in client.get("/api/quarters").json()}
+    assert client.get(f"/api/quarters/{qs['T3 2026']}/calcul").json()["collectee"]["tva"] == 100
+    got = client.get(f"/api/invoices/{r['id']}").json()
+    assert [p["amount"] for p in got["payments"]] == [600, 600] and got["paid_date"] == "2026-07-15"
+
+
+def test_patch_payments_replaces_list_and_invalidates_validation(client):
+    r = client.post("/api/invoices/manual", json=_manual(validate=True)).json()
+    assert r["status"] == "validee" and r["payments"] == []
+    p = client.patch(f"/api/invoices/{r['id']}", json={"payments": [{"date": "2026-05-12", "amount": 1500, "mode": "cheque"}]}).json()
+    assert p["status"] == "a_verifier" and p["paid_amount"] == 1500
+    assert any(i["code"] == "paid_exceeds" for i in p["issues"])
+    assert client.patch(f"/api/invoices/{r['id']}", json={"payments": [{"date": "2026-05-12", "amount": -5}]}).status_code == 422
+    assert client.patch(f"/api/invoices/{r['id']}", json={"payments": [{"date": "n'importe quoi", "amount": 5}]}).status_code == 422
+    assert client.patch(f"/api/invoices/{r['id']}", json={"payments": []}).json()["paid_date"] is None
+
+
+def test_legacy_single_payment_fields_still_work(client):
+    r = client.post("/api/invoices/manual", json=_manual()).json()
+    p = client.patch(f"/api/invoices/{r['id']}", json={"paid_date": "2026-05-20", "paid_amount": 1200, "pay_mode": "virement"}).json()
+    assert [x["amount"] for x in p["payments"]] == [1200]
+
+
+def test_imported_invoice_gets_a_payment_row(client):
+    seed(client)
+    qid = next(q["id"] for q in client.get("/api/quarters").json() if q["label"] == "T2 2026")
+    inv = client.get(f"/api/quarters/{qid}/invoices").json()[0]
+    assert len(client.get(f"/api/invoices/{inv['id']}").json()["payments"]) == (1 if inv["paid_date"] else 0)

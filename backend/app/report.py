@@ -12,7 +12,17 @@ def mad(x):
     return f"{x:,.2f}".replace(",", " ").replace(".", ",") + " MAD"
 
 
-def build_pdf(calc: dict, cmp: dict) -> bytes:
+def _identity(c: dict | None) -> str:
+    if not c:
+        return config.COMPANY_NAME
+    parts = [c.get("raison_sociale") or config.COMPANY_NAME]
+    for label, key in (("ICE", "ice"), ("IF", "if_fiscal")):
+        if c.get(key):
+            parts.append(f"{label} {c[key]}")
+    return " · ".join(parts)
+
+
+def build_pdf(calc: dict, cmp: dict, company: dict | None = None) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm, topMargin=2 * cm, bottomMargin=2 * cm,
                             title=f"Rapport de contrôle T{calc['q']} {calc['year']}")
@@ -22,7 +32,7 @@ def build_pdf(calc: dict, cmp: dict) -> bytes:
     body = ParagraphStyle("b", parent=st["BodyText"], fontSize=10, leading=14)
     small = ParagraphStyle("s", parent=body, fontSize=8, textColor=colors.HexColor("#6B7280"))
     el = [Paragraph(f"Rapport de contrôle de la TVA — T{calc['q']} {calc['year']}", h1),
-          Paragraph(f"{config.COMPANY_NAME} · généré le {datetime.now():%d/%m/%Y %H:%M}", small), Spacer(1, 12)]
+          Paragraph(_identity(company) + f" · généré le {datetime.now():%d/%m/%Y %H:%M}", small), Spacer(1, 12)]
 
     ecart = cmp["ecart_tva_due"]
     if cmp["nb_ecarts"] == 0 and ecart <= 1:

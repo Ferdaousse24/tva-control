@@ -17,11 +17,12 @@ LABELS = {
     "date_implausible": ("warning", "Date peu plausible"),
     "low_confidence": ("warning", "Champ lu avec une faible confiance"),
     "no_amount": ("warning", "Aucun montant lu"),
+    "paid_exceeds": ("warning", "Total des paiements supérieur au TTC"),
 }
 FIELD_OF = {"ice_missing": "party_ice", "ice_format": "party_ice", "number_missing": "number",
             "date_missing": "date", "party_missing": "party_name", "totals_mismatch": "total_ht",
             "tva_mismatch": "total_tva", "rate_invalid": "lines", "date_implausible": "date",
-            "no_amount": "total_ht"}
+            "no_amount": "total_ht", "paid_exceeds": "paid_amount"}
 
 
 def _issue(code, field=None, message=None):
@@ -55,6 +56,9 @@ def check_invoice(inv: dict) -> list[dict]:
         out.append(_issue("no_amount"))
     elif abs(ht + tv - ttc) > config.TOTALS_TOLERANCE:
         out.append(_issue("totals_mismatch"))
+    paid = sum((D(p["amount"]) for p in inv["payments"]), D(0)) if inv.get("payments") is not None else D(inv.get("paid_amount") or 0)
+    if ttc > 0 and paid > ttc + config.TOTALS_TOLERANCE:
+        out.append(_issue("paid_exceeds"))
     for ln in inv.get("lines", []):
         if not tva.rate_allowed(ln["rate"], d):
             out.append(_issue("rate_invalid", "lines", f"Taux {ln['rate']} % non autorisé à cette date"))

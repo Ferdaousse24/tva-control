@@ -52,7 +52,7 @@ export default function Import() {
 
       <div className="grid2">
         {[['vente', 'Ventes', 'Factures émises à vos clients'], ['achat', 'Achats', 'Factures reçues de vos fournisseurs']].map(([dir, title, sub]) => (
-          <UploadCard key={dir} title={title} sub={sub} busy={busy === dir} onFiles={(f) => onFiles(dir, f)}
+          <UploadCard key={dir} title={title} sub={sub} busy={busy === dir} onFiles={(f) => onFiles(dir, f)} onManual={() => nav(`/factures/nouvelle?sens=${dir}`)}
             count={count((i) => i.direction === dir && !['doublon_ignore', 'remplacee'].includes(i.status))} />
         ))}
       </div>
@@ -75,7 +75,7 @@ export default function Import() {
             <tbody>
               {invoices.map((i) => (
                 <tr key={i.id} className="click" onClick={() => nav(`/factures/${i.id}`)}>
-                  <td>{i.filename}</td><td>{i.direction === 'vente' ? 'Vente' : 'Achat'}</td><td>{i.party_name || '—'}</td>
+                  <td>{i.filename || '—'}</td><td>{i.direction === 'vente' ? 'Vente' : 'Achat'}</td><td>{i.party_name || '—'}</td>
                   <td>{fdate(i.date)}</td><td className="r mono">{fmt(i.total_ttc, 2)}</td><td><StatusBadge inv={i} /></td>
                 </tr>
               ))}
@@ -90,7 +90,7 @@ export default function Import() {
   )
 }
 
-function UploadCard({ title, sub, onFiles, busy, count }) {
+function UploadCard({ title, sub, onFiles, onManual, busy, count }) {
   const ref = useRef()
   return (
     <section className="card">
@@ -98,7 +98,10 @@ function UploadCard({ title, sub, onFiles, busy, count }) {
       <input ref={ref} type="file" hidden multiple accept=".pdf,.jpg,.jpeg,.png"
         onChange={(e) => { if (e.target.files.length) onFiles([...e.target.files]); e.target.value = '' }} />
       <div className="muted">PDF, photo ou scan (JPG, PNG)</div>
-      <div><button className="btn primary" disabled={busy} onClick={() => ref.current.click()}>{busy ? 'Lecture en cours…' : 'Importer une facture'}</button></div>
+      <div className="row">
+        <button className="btn primary" disabled={busy} onClick={() => ref.current.click()}>{busy ? 'Lecture en cours…' : 'Importer une facture'}</button>
+        <button className="btn" disabled={busy} onClick={onManual}>Saisir à la main</button>
+      </div>
     </section>
   )
 }

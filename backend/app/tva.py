@@ -72,11 +72,31 @@ def prorata_ceil(taxable, exonere_deductible, total) -> int:
     return int(pct.to_integral_value(rounding=ROUND_CEILING))
 
 
+def payments_of(inv: dict) -> list[dict]:
+    """Paiements d'une facture, triés par date, plafonnés au TTC (un trop-perçu n'ajoute pas de TVA).
+
+    Accepte « payments » [{date, amount, mode}] ou, à défaut, le paiement unique paid_date / paid_amount / pay_mode.
+    """
+    raw = inv.get("payments")
+    if raw is None:
+        raw = [{"date": inv.get("paid_date"), "amount": inv.get("paid_amount", 0), "mode": inv.get("pay_mode", "")}]
+    ttc = D(inv["total_ttc"])
+    left, out = ttc, []
+    for p in sorted((p for p in raw if p.get("date") and D(p["amount"]) > 0), key=lambda p: p["date"]):
+        a = min(D(p["amount"]), left)
+        if a <= 0:
+            break
+        out.append({"date": p["date"], "amount": a, "mode": p.get("mode", "")})
+        left -= a
+    return out
+
+
 def paid_fraction(inv) -> Decimal:
+    """Part du TTC payée (tous paiements confondus)."""
     ttc = D(inv["total_ttc"])
     if ttc <= 0:
         return D(0)
-    return min(D(1), D(inv["paid_amount"]) / ttc)
+    return sum((p["amount"] for p in payments_of(inv)), D(0)) / ttc
 
 
 def _in(d: date | None, a: date, b: date) -> bool:
@@ -102,11 +122,14 @@ def compute_quarter(invoices: Iterable[dict], year: int, q: int, prorata: int = 
     cash_day, cash_month = {}, {}
     # cumul des paiements en espèces par fournisseur (jour / mois) pour appliquer les plafonds
     for inv in invoices:
-        if inv["direction"] == "achat" and inv.get("pay_mode") == "especes" and _in(inv["paid_date"], start, end):
-            k = (inv["party_ice"] or inv["party_name"], inv["paid_date"])
-            cash_day[k] = cash_day.get(k, D(0)) + D(inv["paid_amount"])
-            km = (inv["party_ice"] or inv["party_name"], inv["paid_date"].year, inv["paid_date"].month)
-            cash_month[km] = cash_month.get(km, D(0)) + D(inv["paid_amount"])
+        if inv["direction"] != "achat":
+            continue
+        for p in payments_of(inv):
+            if p["mode"] == "especes" and _in(p["date"], start, end):
+                ident = inv["party_ice"] or inv["party_name"]
+                cash_day[(ident, p["date"])] = cash_day.get((ident, p["date"]), D(0)) + p["amount"]
+                km = (ident, p["date"].year, p["date"].month)
+                cash_month[km] = cash_month.get(km, D(0)) + p["amount"]
 
     for inv in invoices:
         if inv["status"] in ("doublon_ignore", "remplacee", "doublon_detecte"):
@@ -115,12 +138,13 @@ def compute_quarter(invoices: Iterable[dict], year: int, q: int, prorata: int = 
             if (inv["date"] and _in(inv["date"], start, end)) or _in(inv["paid_date"], start, end):
                 a_verifier.append(_ref(inv))
             continue
-        paid_in_q = _in(inv["paid_date"], start, end)
-        if not paid_in_q:
+        ttc = D(inv["total_ttc"])
+        pays_q = [p for p in payments_of(inv) if _in(p["date"], start, end)]
+        if not pays_q:
             if inv["direction"] == "vente" and inv["date"] and _in(inv["date"], start, end):
                 reportees.append({**_ref(inv), "motif": "Non encaissée dans le trimestre"})
             continue
-        frac = paid_fraction(inv)
+        frac = sum((p["amount"] for p in pays_q), D(0)) / ttc if ttc > 0 else D(0)
         if inv["direction"] == "vente":
             nb_ventes += 1
             for ln in inv["lines"]:
@@ -130,7 +154,7 @@ def compute_quarter(invoices: Iterable[dict], year: int, q: int, prorata: int = 
                 c["base"] += base
                 c["tva"] += tva
             continue
-        # --- achat payé dans le trimestre ---
+        # --- achat payé (en tout ou partie) dans le trimestre ---
         nb_achats += 1
         tva_total = sum((D(ln["tva"]) for ln in inv["lines"]), D(0)) * frac
         base_total = sum((D(ln["base_ht"]) for ln in inv["lines"]), D(0)) * frac
@@ -142,22 +166,31 @@ def compute_quarter(invoices: Iterable[dict], year: int, q: int, prorata: int = 
         if motif:
             exclusions.append({**_ref(inv), "tva": q2(tva_total), "base": q2(base_total), "motif": motif})
             continue
-        # plafonds espèces
-        if inv.get("pay_mode") == "especes":
-            ident = inv["party_ice"] or inv["party_name"]
-            day_total = cash_day.get((ident, inv["paid_date"]), D(0))
-            month_total = cash_month.get((ident, inv["paid_date"].year, inv["paid_date"].month), D(0))
+        # plafonds espèces, appliqués paiement par paiement
+        ident = inv["party_ice"] or inv["party_name"]
+        full_tva = sum((D(ln["tva"]) for ln in inv["lines"]), D(0))
+        full_base = sum((D(ln["base_ht"]) for ln in inv["lines"]), D(0))
+        cash_tva = cash_base = D(0)
+        for p in pays_q:
+            if p["mode"] != "especes":
+                continue
+            day_total = cash_day.get((ident, p["date"]), D(0))
+            month_total = cash_month.get((ident, p["date"].year, p["date"].month), D(0))
             over = D(0)
             if day_total > config.CASH_CAP_DAY:
                 over = max(over, (day_total - config.CASH_CAP_DAY) / day_total)
             if month_total > config.CASH_CAP_MONTH:
                 over = max(over, (month_total - config.CASH_CAP_MONTH) / month_total)
             if over > 0:
-                part = q2(tva_total * over)
-                exclusions.append({**_ref(inv), "tva": part, "base": q2(base_total * over),
-                                   "motif": "Paiement en espèces au-delà du plafond"})
-                tva_total -= part
-                base_total -= q2(base_total * over)
+                share = p["amount"] / ttc * over
+                cash_tva += full_tva * share
+                cash_base += full_base * share
+        if cash_tva > 0:
+            part = q2(cash_tva)
+            exclusions.append({**_ref(inv), "tva": part, "base": q2(cash_base),
+                               "motif": "Paiement en espèces au-delà du plafond"})
+            tva_total -= part
+            base_total -= q2(cash_base)
         cat = "immobilisation" if inv["categorie"] == "immobilisation" else "charge"
         ded[cat] += tva_total
         ded_base[cat] += base_total

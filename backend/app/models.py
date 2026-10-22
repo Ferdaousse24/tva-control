@@ -1,7 +1,7 @@
 from datetime import datetime, date as DateType, timezone
 from decimal import Decimal
-from sqlalchemy import String, Integer, Date, DateTime, Numeric, JSON, Text, Boolean, UniqueConstraint, LargeBinary
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, Date, DateTime, Numeric, JSON, Text, Boolean, UniqueConstraint, LargeBinary, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
 Money = Numeric(14, 2)
@@ -49,6 +49,34 @@ class Invoice(Base):
     dup_justification: Mapped[str] = mapped_column(Text, default="")
     forced_comment: Mapped[str] = mapped_column(Text, default="")  # inclusion forcée d'une facture non conforme
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    # paiements / encaissements (un ou plusieurs, partiels possibles) ; paid_date / paid_amount / pay_mode en sont le résumé
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan", order_by="Payment.date, Payment.id", lazy="selectin")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    date: Mapped[DateType] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    mode: Mapped[str] = mapped_column(String(20), default="")
+    invoice: Mapped["Invoice"] = relationship(back_populates="payments")
+
+
+class Company(Base):
+    """Fiche entreprise (une seule ligne, id = 1). Jamais supprimée."""
+    __tablename__ = "company"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    raison_sociale: Mapped[str] = mapped_column(String(200), default="")
+    forme_juridique: Mapped[str] = mapped_column(String(50), default="")
+    adresse: Mapped[str] = mapped_column(String(300), default="")
+    if_fiscal: Mapped[str] = mapped_column(String(20), default="")
+    ice: Mapped[str] = mapped_column(String(15), default="")
+    rc: Mapped[str] = mapped_column(String(40), default="")
+    tribunal: Mapped[str] = mapped_column(String(80), default="")
+    taxe_pro: Mapped[str] = mapped_column(String(30), default="")
+    cnss: Mapped[str] = mapped_column(String(30), default="")
 
 
 class Declaration(Base):

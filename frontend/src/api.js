@@ -26,6 +26,9 @@ export const api = {
   comparaison: (qid) => req(`/quarters/${qid}/comparaison`),
   explain: (qid, key, comment) => req(`/quarters/${qid}/ecarts/${key}/expliquer`, json('POST', { comment })),
   rapport: (qid) => req(`/quarters/${qid}/rapport`),
+  company: () => req('/company'),
+  saveCompany: (body) => req('/company', json('PUT', body)),
+  createManual: (body) => req('/invoices/manual', json('POST', body)),
   seed: () => req('/demo/seed', json('POST')),
   resetDemo: () => req('/demo/reset', json('POST')),
 }

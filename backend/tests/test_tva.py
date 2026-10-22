@@ -98,3 +98,44 @@ def test_dirham_rounding():
     invs = [inv(lines=[{"rate": 20, "base_ht": D("1000.40"), "tva": D("200.08")}], total_ttc=D("1200.48"), paid_amount=D("1200.48"))]
     r = tva.compute_quarter(invs, 2026, 2)
     assert r["tva_due"] == D(200) and r["arrondi"] == D("-0.08")
+
+
+def _two_payments():
+    return [{"date": date(2026, 6, 20), "amount": D(600), "mode": "virement"},
+            {"date": date(2026, 7, 15), "amount": D(600), "mode": "virement"}]
+
+
+def test_sale_paid_in_two_installments_is_split_across_quarters():
+    i = inv(payments=_two_payments())
+    t2 = tva.compute_quarter([i], 2026, 2)
+    t3 = tva.compute_quarter([i], 2026, 3)
+    assert t2["collectee"]["tva"] == D("100.00") and t3["collectee"]["tva"] == D("100.00")
+    assert not t3["reportees"]                         # la vente a bien un paiement dans T3
+
+
+def test_overpayment_never_adds_vat():
+    i = inv(payments=[{"date": date(2026, 5, 20), "amount": D(1000), "mode": ""},
+                      {"date": date(2026, 5, 25), "amount": D(1000), "mode": ""}])
+    assert tva.compute_quarter([i], 2026, 2)["collectee"]["tva"] == D("200.00")
+
+
+def test_unpaid_installment_quarter_without_payment_is_reported():
+    i = inv(payments=[{"date": date(2026, 8, 1), "amount": D(1200), "mode": ""}])
+    r = tva.compute_quarter([i], 2026, 2)
+    assert r["collectee"]["tva"] == 0 and len(r["reportees"]) == 1
+
+
+def test_cash_cap_applies_across_same_day_installments():
+    # 2 règlements en espèces le même jour chez le même fournisseur : 4 000 + 4 000 TTC > 5 000 /jour
+    i = inv(direction="achat", lines=[{"rate": 20, "base_ht": D(6666.67), "tva": D(1333.33)}], total_ttc=D(8000),
+            payments=[{"date": date(2026, 5, 20), "amount": D(4000), "mode": "especes"},
+                      {"date": date(2026, 5, 20), "amount": D(4000), "mode": "especes"}])
+    r = tva.compute_quarter([i], 2026, 2)
+    assert any("espèces" in e["motif"] for e in r["exclusions"])
+    assert r["deductible"]["tva"] < D("1333.33")
+
+
+def test_payments_dict_matches_single_payment_fields():
+    a = tva.compute_quarter([inv()], 2026, 2)["collectee"]["tva"]
+    b = tva.compute_quarter([inv(payments=[{"date": date(2026, 5, 20), "amount": D(1200), "mode": "virement"}])], 2026, 2)["collectee"]["tva"]
+    assert a == b == D("200.00")

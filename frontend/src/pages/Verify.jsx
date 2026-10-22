@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useQuarter, fmt, fdate, Banner, StatusBadge } from '../ui.jsx'
 
@@ -7,22 +7,31 @@ const RATES = [20, 10, 0, 14, 7]
 const num = (v) => (v === '' || v == null ? 0 : Number(String(v).replace(',', '.')) || 0)
 const r2 = (x) => Math.round(x * 100) / 100
 
+const MODES = [['', '—'], ['virement', 'Virement'], ['cheque', 'Chèque'], ['effet', 'Effet'], ['especes', 'Espèces'], ['carte', 'Carte']]
+const today = () => new Date().toISOString().slice(0, 10)
+
 export default function Verify() {
   const { id } = useParams()
+  const isNew = id === 'nouvelle'
+  const [params] = useSearchParams()
   const nav = useNavigate()
-  const { reload } = useQuarter()
+  const { reload, select } = useQuarter()
   const [inv, setInv] = useState(null)
   const [f, setF] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = async () => {
-    const d = await api.invoice(id)
+    const d = isNew
+      ? { direction: params.get('sens') === 'achat' ? 'achat' : 'vente', filename: 'Saisie manuelle', status: 'nouvelle', manual: true, has_file: false,
+          issues: [], confidence: {}, lines: [], payments: [], number: '', date: '', party_name: '', party_ice: '', categorie: 'charge',
+          total_ttc: 0, non_conforme: false, forced: false }
+      : await api.invoice(id)
     setInv(d)
     setF({
-      number: d.number, date: d.date || '', party_name: d.party_name, party_ice: d.party_ice, categorie: d.categorie,
+      direction: d.direction, number: d.number, date: d.date || '', party_name: d.party_name, party_ice: d.party_ice, categorie: d.categorie,
       lines: (d.lines.length ? d.lines : [{ rate: 20, base_ht: 0, tva: 0 }]).map((l) => ({ rate: l.rate, base_ht: l.base_ht, tva: l.tva })),
-      total_ttc: d.total_ttc, paid_date: d.paid_date || '', paid_amount: d.paid_amount, pay_mode: d.pay_mode,
+      total_ttc: d.total_ttc, payments: (d.payments || []).map((p) => ({ date: p.date, amount: p.amount, mode: p.mode || '' })),
     })
   }
   useEffect(() => { load().catch((e) => setErr(e.message)) }, [id])
@@ -39,23 +48,38 @@ export default function Verify() {
   const tv = r2(f.lines.reduce((a, l) => a + num(l.tva), 0))
   const mismatch = Math.abs(ht + tv - num(f.total_ttc)) > 1
 
-  const payload = () => ({
-    ...f, date: f.date || null, paid_date: f.paid_date || null, paid_amount: num(f.paid_amount), total_ttc: num(f.total_ttc),
-    total_ht: ht, total_tva: tv, lines: f.lines.map((l) => ({ rate: num(l.rate), base_ht: num(l.base_ht), tva: num(l.tva) })),
-  })
+  const paidTotal = r2(f.payments.reduce((a, p) => a + num(p.amount), 0))
+  const remaining = r2(num(f.total_ttc) - paidTotal)
+  const setPay = (i, k, v) => set('payments', f.payments.map((p, j) => (j === i ? { ...p, [k]: v } : p)))
+  const addPay = () => set('payments', [...f.payments, { date: f.payments.length ? '' : (f.date || today()), amount: remaining > 0 ? remaining : '', mode: f.payments.at(-1)?.mode || '' }])
+  const payload = () => {
+    for (const p of f.payments) if ((num(p.amount) > 0) !== Boolean(p.date)) throw new Error('Chaque paiement doit avoir une date et un montant.')
+    const { direction, ...rest } = f
+    return {
+      ...(isNew ? { direction } : {}), ...rest, date: f.date || null, total_ttc: num(f.total_ttc),
+      total_ht: ht, total_tva: tv, lines: f.lines.map((l) => ({ rate: num(l.rate), base_ht: num(l.base_ht), tva: num(l.tva) })),
+      payments: f.payments.filter((p) => p.date && num(p.amount) > 0).map((p) => ({ date: p.date, amount: num(p.amount), mode: p.mode })),
+    }
+  }
   const run = async (fn, after) => { setBusy(true); setErr(''); try { await fn(); await reload(); after() } catch (e) { setErr(e.message) } finally { setBusy(false) } }
+  const createManual = (validate) => run(async () => {
+    const created = await api.createManual({ ...payload(), validate })
+    await reload()
+    select(created.quarter_id)
+    nav(validate && created.status === 'validee' ? '/' : `/factures/${created.id}`)
+  }, () => {})
 
   const issueOf = (field) => inv.issues.find((i) => i.field === field)
   const cls = (field) => { const i = issueOf(field); return i ? (i.level === 'error' ? 'red' : 'amber') : '' }
   const isDup = inv.status === 'doublon_detecte'
-  const achat = inv.direction === 'achat'
+  const achat = f.direction === 'achat'
 
   return (
     <>
       <div className="head">
         <div>
-          <h1>{isDup ? 'Doublon détecté' : inv.non_conforme && achat ? 'Vérifier une facture non conforme' : 'Vérifier une facture'}</h1>
-          <div className="sub">{inv.filename} · {achat ? 'Achat' : 'Vente'} · lecture : {inv.extraction_source === 'ocr' ? 'photo / scan (OCR)' : 'PDF texte'} <StatusBadge inv={inv} /></div>
+          <h1>{isNew ? 'Saisir une facture' : isDup ? 'Doublon détecté' : inv.non_conforme && achat ? 'Vérifier une facture non conforme' : 'Vérifier une facture'}</h1>
+          <div className="sub">{isNew ? 'Saisie manuelle' : inv.filename} · {achat ? 'Achat' : 'Vente'}{!isNew && <> · {inv.manual ? 'saisie manuelle' : `lecture : ${inv.extraction_source === 'ocr' ? 'photo / scan (OCR)' : 'PDF texte'}`} <StatusBadge inv={inv} /></>}</div>
         </div>
       </div>
 
@@ -73,14 +97,27 @@ export default function Verify() {
       <div className="split">
         <div className="card">
           <h2>Fichier source</h2>
-          <div className="preview">
-            {inv.is_pdf ? <iframe title="Facture" src={inv.file_url} /> : <img alt={inv.filename} src={inv.file_url} />}
-          </div>
-          <a className="muted" href={inv.file_url} target="_blank" rel="noreferrer">Ouvrir le fichier dans un nouvel onglet</a>
+          {inv.has_file === false ? (
+            <div className="muted">Facture saisie à la main : aucun fichier source. Pensez à conserver la pièce originale (obligation d'archivage).</div>
+          ) : (
+            <>
+              <div className="preview">
+                {inv.is_pdf ? <iframe title="Facture" src={inv.file_url} /> : <img alt={inv.filename} src={inv.file_url} />}
+              </div>
+              <a className="muted" href={inv.file_url} target="_blank" rel="noreferrer">Ouvrir le fichier dans un nouvel onglet</a>
+            </>
+          )}
         </div>
 
         <div className="card">
-          <h2>Champs lus — modifiables</h2>
+          <h2>{isNew ? 'Champs à saisir' : 'Champs lus — modifiables'}</h2>
+          {isNew && (
+            <Field inv={inv} label="Sens">
+              <select className="in" value={f.direction} onChange={(e) => set('direction', e.target.value)}>
+                <option value="vente">Vente (facture émise à un client)</option><option value="achat">Achat (facture reçue d'un fournisseur)</option>
+              </select>
+            </Field>
+          )}
           <div className="grid2">
             <Field inv={inv} label="N° de facture" field="number"><input className={`in ${cls('number')}`} value={f.number} onChange={(e) => set('number', e.target.value)} /></Field>
             <Field inv={inv} label="Date" field="date"><input className={`in ${cls('date')}`} type="date" value={f.date} onChange={(e) => set('date', e.target.value)} /></Field>
@@ -118,24 +155,42 @@ export default function Verify() {
           </Field>
           {mismatch && <span className="hint amber">HT + TVA = {fmt(ht + tv, 2)} MAD, différent du TTC saisi.</span>}
 
-          <div className="muted" style={{ fontWeight: 600, marginTop: 4 }}>Paiement (nécessaire : la TVA est rattachée à l'encaissement / au paiement)</div>
-          <div className="grid2">
-            <Field inv={inv} label="Date de paiement"><input className="in" type="date" value={f.paid_date} onChange={(e) => set('paid_date', e.target.value)} /></Field>
-            <Field inv={inv} label="Montant payé (TTC)"><input className="in" value={f.paid_amount} onChange={(e) => set('paid_amount', e.target.value)} /></Field>
-          </div>
-          <Field inv={inv} label="Mode de paiement">
-            <select className="in" value={f.pay_mode} onChange={(e) => set('pay_mode', e.target.value)}>
-              <option value="">—</option><option value="virement">Virement</option><option value="cheque">Chèque</option><option value="effet">Effet</option><option value="especes">Espèces</option><option value="carte">Carte</option>
-            </select>
-          </Field>
-          {!f.paid_date && <span className="hint amber">Sans date de paiement, cette facture ne sera comptée dans aucun trimestre.</span>}
+          <div className="muted" style={{ fontWeight: 600, marginTop: 4 }}>Paiements (la TVA est rattachée à chaque paiement, dans le trimestre où il a lieu)</div>
+          {f.payments.length > 0 && (
+            <table>
+              <thead><tr><th>Date</th><th className="r">Montant TTC</th><th>Mode</th><th /></tr></thead>
+              <tbody>
+                {f.payments.map((p, i) => (
+                  <tr key={i}>
+                    <td><input className="in" type="date" value={p.date} onChange={(e) => setPay(i, 'date', e.target.value)} /></td>
+                    <td><input className="in r" inputMode="decimal" value={p.amount} onChange={(e) => setPay(i, 'amount', e.target.value)} /></td>
+                    <td><select className="in" value={p.mode} onChange={(e) => setPay(i, 'mode', e.target.value)}>{MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
+                    <td style={{ width: 36 }}><button className="btn" title="Supprimer ce paiement" onClick={() => set('payments', f.payments.filter((_, j) => j !== i))}>×</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div><button className="btn" onClick={addPay}>+ Ajouter un paiement</button></div>
+          <div className="kv"><span>Total payé</span><b className="mono">{fmt(paidTotal, 2)} MAD</b></div>
+          <div className="kv"><span>Reste à payer</span><b className="mono">{fmt(Math.max(remaining, 0), 2)} MAD</b></div>
+          {remaining < -1 && <span className="hint amber">Les paiements dépassent le TTC de {fmt(-remaining, 2)} MAD : l'excédent n'est pas compté dans la TVA.</span>}
+          {f.payments.length === 0 && <span className="hint amber">Sans paiement, cette facture ne sera comptée dans aucun trimestre.</span>}
+          {f.payments.some((p) => p.mode === 'especes') && achat && <span className="hint muted">Paiements en espèces : plafonds de 5 000 MAD par jour et 50 000 MAD par mois et par fournisseur.</span>}
         </div>
       </div>
 
       {inv.non_conforme && achat && !isDup && <ForcePanel inv={inv} busy={busy} run={run} reload={load} />}
       {err && <div className="alert red">{err}</div>}
 
-      {!isDup && (
+      {isNew && (
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn" onClick={() => nav('/')}>Annuler</button>
+          <button className="btn" disabled={busy} onClick={() => createManual(false)}>Enregistrer (à vérifier)</button>
+          <button className="btn primary" disabled={busy} onClick={() => createManual(true)}>Enregistrer et valider</button>
+        </div>
+      )}
+      {!isDup && !isNew && (
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button className="btn" onClick={() => nav('/')}>Annuler</button>
           <button className="btn" disabled={busy} onClick={() => run(() => api.patch(inv.id, payload()), () => load())}>Enregistrer</button>

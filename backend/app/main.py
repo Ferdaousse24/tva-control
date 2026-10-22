@@ -10,9 +10,10 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from . import config, extraction, tva, compare as cmp_mod, report, duplicates
 from .db import Base, engine, get_db
-from .models import Quarter, Invoice, Declaration, AuditLog, FileBlob
+from .models import Quarter, Invoice, Declaration, AuditLog, FileBlob, Payment, Company
 from .services import (audit, ingest, serialize, refresh_issues, invoices_of_quarter, calc_for,
-                       credit_anterieur, inv_dict)
+                       credit_anterieur, inv_dict, payments_view, set_payments, PAY_MODES,
+                       company_dict, validate_company, COMPANY_FIELDS)
 
 Base.metadata.create_all(engine)
 app = FastAPI(title="Contrôle TVA trimestrielle", version="0.1")
@@ -108,6 +109,66 @@ async def upload(direction: str = Form(...), file: UploadFile = File(...), db: S
     return _json(serialize(inv, full=True))
 
 
+@app.post("/api/invoices/manual")
+def create_manual(body: dict, db: Session = Depends(get_db)):
+    """Saisie manuelle d'une facture (sans fichier source)."""
+    direction = body.get("direction")
+    if direction not in ("vente", "achat"):
+        raise HTTPException(422, "Sens invalide (vente ou achat)")
+    inv = Invoice(direction=direction, filename="", file_path="", sha256="", extraction_source="manuelle",
+                  status="a_verifier", confidence={}, original_values={}, lines=[], number="", party_name="",
+                  party_ice="", categorie="charge", total_ht=D(0), total_tva=D(0), total_ttc=D(0),
+                  paid_amount=D(0), pay_mode="", issues=[])
+    body = {**body, "date": body.get("date") or None}
+    if not body["date"]:
+        raise HTTPException(422, "La date de la facture est obligatoire")
+    _apply(inv, {k: v for k, v in body.items() if k != "direction"})
+    inv.filename = f"Saisie manuelle {inv.number or ''}".strip()[:255]
+    dup, kind = duplicates.find_duplicate(db.query(Invoice).all(), {**inv_dict(inv), "sha256": ""})
+    if dup:
+        inv.dup_of, inv.dup_kind = dup.id, kind
+        if kind == "certain":
+            inv.status = "doublon_detecte"
+    refresh_issues(inv)
+    if body.get("validate") and inv.status == "a_verifier":
+        inv.status = "validee"
+    qy, qq = inv.date.year, (inv.date.month - 1) // 3 + 1
+    quarter = db.query(Quarter).filter_by(year=qy, q=qq).first()
+    if not quarter:
+        quarter = Quarter(year=qy, q=qq, prorata=100, explained={})
+        db.add(quarter)
+    db.add(inv)
+    db.flush()
+    audit(db, "saisie_manuelle", inv.filename, id=inv.id, sens=direction, doublon=kind or None, validee=inv.status == "validee")
+    db.commit()
+    out = serialize(inv, full=True)
+    out["quarter_id"] = quarter.id
+    return _json(out)
+
+
+@app.get("/api/company")
+def get_company(db: Session = Depends(get_db)):
+    return _json(company_dict(db))
+
+
+@app.put("/api/company")
+def put_company(body: dict, db: Session = Depends(get_db)):
+    data, errs = validate_company(body)
+    if errs:
+        raise HTTPException(422, " · ".join(f"{k} : {m}" for k, m in errs.items()))
+    c = db.get(Company, 1)
+    before = company_dict(db)
+    if not c:
+        c = Company(id=1)
+        db.add(c)
+    for k, v in data.items():
+        setattr(c, k, v)
+    audit(db, "fiche_entreprise", data["raison_sociale"],
+          modifie={k: [before[k], v] for k, v in data.items() if before.get(k) != v})
+    db.commit()
+    return _json(company_dict(db))
+
+
 @app.get("/api/invoices/{iid}")
 def get_invoice(iid: int, db: Session = Depends(get_db)):
     inv = _invoice(db, iid)
@@ -124,6 +185,8 @@ def get_invoice(iid: int, db: Session = Depends(get_db)):
 @app.get("/api/invoices/{iid}/file")
 def invoice_file(iid: int, db: Session = Depends(get_db)):
     inv = _invoice(db, iid)
+    if not inv.file_path:
+        raise HTTPException(404, "Saisie manuelle : pas de fichier source")
     p = Path(inv.file_path)
     media = {".pdf": "application/pdf", ".png": "image/png"}.get(p.suffix.lower(), "image/jpeg")
     headers = {"Content-Disposition": f'inline; filename="{inv.filename}"'}
@@ -140,8 +203,36 @@ EDITABLE = ("number", "date", "party_name", "party_ice", "categorie", "pay_mode"
             "total_ht", "total_tva", "total_ttc", "lines", "direction")
 
 
+def _parse_payments(raw) -> list[dict]:
+    if not isinstance(raw, list) or len(raw) > 24:
+        raise HTTPException(422, "Liste de paiements invalide (24 maximum)")
+    out = []
+    for p in raw:
+        try:
+            d = date.fromisoformat(str(p.get("date") or ""))
+            a = D(str(p.get("amount") or 0))
+        except Exception:
+            raise HTTPException(422, "Paiement invalide : date ou montant illisible")
+        if a <= 0:
+            raise HTTPException(422, "Chaque paiement doit avoir un montant positif")
+        mode = p.get("mode") or ""
+        if mode not in PAY_MODES:
+            raise HTTPException(422, "Mode de paiement invalide")
+        out.append({"date": d, "amount": a, "mode": mode})
+    return out
+
+
 def _apply(inv: Invoice, body: dict):
     before, after = {}, {}
+    pay_fields_changed = False
+    if "payments" in body:
+        items = _parse_payments(body["payments"])
+        cur = [(p["date"], p["amount"], p["mode"]) for p in payments_view(inv)]
+        new = [(p["date"], p["amount"], p["mode"]) for p in sorted(items, key=lambda p: p["date"])]
+        if cur != new:
+            before["payments"] = [{"date": str(d), "amount": a, "mode": m} for d, a, m in cur]
+            after["payments"] = [{"date": str(d), "amount": a, "mode": m} for d, a, m in new]
+            set_payments(inv, items)
     for k in EDITABLE:
         if k not in body:
             continue
@@ -162,6 +253,8 @@ def _apply(inv: Invoice, body: dict):
         if old != v:
             before[k], after[k] = old, v
             setattr(inv, k, v)
+            if k in ("paid_date", "paid_amount", "pay_mode") and "payments" not in body:
+                pay_fields_changed = True
             if k in ("total_ht", "total_tva", "total_ttc", "lines"):
                 conf = dict(inv.confidence or {})
                 for c in ("total_ht", "total_tva", "total_ttc", "lines"):
@@ -172,6 +265,9 @@ def _apply(inv: Invoice, body: dict):
                 conf = dict(inv.confidence)
                 conf[k] = 1.0
                 inv.confidence = conf
+    if pay_fields_changed:  # ancien mode « paiement unique » : on reconstruit la liste
+        set_payments(inv, [{"date": inv.paid_date, "amount": inv.paid_amount, "mode": inv.pay_mode}]
+                     if inv.paid_date and D(inv.paid_amount) > 0 else [])
     return before, after
 
 
@@ -356,7 +452,7 @@ def rapport_pdf(qid: int, db: Session = Depends(get_db)):
     calc, c = _comparison(db, q)
     audit(db, "rapport_genere", f"T{q.q} {q.year}")
     db.commit()
-    pdf = report.build_pdf(calc, c)
+    pdf = report.build_pdf(calc, c, company_dict(db))
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="rapport_controle_T{q.q}_{q.year}.pdf"'})
 
@@ -372,7 +468,7 @@ def demo_reset(db: Session = Depends(get_db)):
     """Efface TOUTES les données puis recharge la démonstration (usage test uniquement)."""
     from .seed import seed
     from .models import FileBlob
-    for model in (Invoice, Declaration, Quarter, FileBlob):
+    for model in (Payment, Invoice, Declaration, Quarter, FileBlob):
         db.query(model).delete()
     audit(db, "demo_reset", "toutes les données")
     db.commit()
