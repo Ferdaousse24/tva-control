@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { useQuarter, mad, Banner } from '../ui.jsx'
+import { useQuarter, mad, Banner, BackBtn } from '../ui.jsx'
 
 const FIELDS = [
   ['collectee_20', 'TVA collectée à 20 %'], ['collectee_10', 'TVA collectée à 10 %'],
@@ -32,7 +32,7 @@ export default function Declaration() {
 
   return (
     <>
-      <div className="head"><div><h1>Déclaration du comptable</h1><div className="sub">{quarter.label} · saisissez les montants de la déclaration déposée pour les comparer au recalcul</div></div></div>
+      <div className="head hasback"><BackBtn to="/calcul" /><div><h1>Déclaration du comptable</h1><div className="sub">{quarter.label} · saisissez les montants de la déclaration déposée pour les comparer au recalcul</div></div></div>
       <div className="split">
         <section className="card">
           <h2>Montants de la déclaration déposée</h2>
@@ -61,8 +61,8 @@ export default function Declaration() {
         </section>
       </div>
       {err && <div className="alert red">{err}</div>}
-      <div className="row" style={{ justifyContent: 'flex-end' }}>
-        <button className="btn" onClick={() => nav('/calcul')}>Retour au calcul</button>
+      <div className="row actionbar" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn hide-m" onClick={() => nav('/calcul')}>Retour au calcul</button>
         <button className="btn primary" onClick={() => save('/bilan')}>Comparer avec le recalcul</button>
       </div>
     </>

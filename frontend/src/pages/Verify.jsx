@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { useQuarter, fmt, fdate, Banner, StatusBadge } from '../ui.jsx'
+import { useQuarter, fmt, fdate, Banner, StatusBadge, BackBtn } from '../ui.jsx'
 
 const RATES = [20, 10, 0, 14, 7]
 const num = (v) => (v === '' || v == null ? 0 : Number(String(v).replace(',', '.')) || 0)
@@ -20,6 +20,7 @@ export default function Verify() {
   const [f, setF] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState('data')
 
   const load = async () => {
     const d = isNew
@@ -76,7 +77,8 @@ export default function Verify() {
 
   return (
     <>
-      <div className="head">
+      <div className="head hasback">
+        <BackBtn to="/" />
         <div>
           <h1>{isNew ? 'Saisir une facture' : isDup ? 'Doublon détecté' : inv.non_conforme && achat ? 'Vérifier une facture non conforme' : 'Vérifier une facture'}</h1>
           <div className="sub">{isNew ? 'Saisie manuelle' : inv.filename} · {achat ? 'Achat' : 'Vente'}{!isNew && <> · {inv.manual ? 'saisie manuelle' : `lecture : ${inv.extraction_source === 'ocr' ? 'photo / scan (OCR)' : 'PDF texte'}`} <StatusBadge inv={inv} /></>}</div>
@@ -94,8 +96,15 @@ export default function Verify() {
         onResolve={(action, just) => run(() => api.duplicate(inv.id, action, just), () => (action === 'ignorer' ? nav('/') : load()))}
         onCancel={() => nav('/')} />}
 
-      <div className="split">
-        <div className="card">
+      {inv.has_file !== false && (
+        <div className="tabs only-m" role="tablist">
+          <button className={tab === 'data' ? 'on' : ''} onClick={() => setTab('data')}>Données extraites</button>
+          <button className={tab === 'src' ? 'on' : ''} onClick={() => setTab('src')}>Facture source</button>
+        </div>
+      )}
+
+      <div className={`split show-${tab} ${inv.has_file === false ? 'nofile' : ''}`}>
+        <div className="card pane-src">
           <h2>Fichier source</h2>
           {inv.has_file === false ? (
             <div className="muted">Facture saisie à la main : aucun fichier source. Pensez à conserver la pièce originale (obligation d'archivage).</div>
@@ -109,7 +118,7 @@ export default function Verify() {
           )}
         </div>
 
-        <div className="card">
+        <div className="card pane-data">
           <h2>{isNew ? 'Champs à saisir' : 'Champs lus — modifiables'}</h2>
           {isNew && (
             <Field inv={inv} label="Sens">
@@ -118,7 +127,7 @@ export default function Verify() {
               </select>
             </Field>
           )}
-          <div className="grid2">
+          <div className="grid2 fields">
             <Field inv={inv} label="N° de facture" field="number"><input className={`in ${cls('number')}`} value={f.number} onChange={(e) => set('number', e.target.value)} /></Field>
             <Field inv={inv} label="Date" field="date"><input className={`in ${cls('date')}`} type="date" value={f.date} onChange={(e) => set('date', e.target.value)} /></Field>
             <Field inv={inv} label={achat ? 'Fournisseur' : 'Client'} field="party_name"><input className={`in ${cls('party_name')}`} value={f.party_name} onChange={(e) => set('party_name', e.target.value)} /></Field>
@@ -133,15 +142,15 @@ export default function Verify() {
           )}
 
           <div className="muted" style={{ fontWeight: 600, marginTop: 4 }}>Montants par taux de TVA {issueOf('lines') && <span className="hint amber">· {issueOf('lines').message}</span>}</div>
-          <table>
+          <table className="stack">
             <thead><tr><th>Taux</th><th className="r">Base HT</th><th className="r">TVA</th><th /></tr></thead>
             <tbody>
               {f.lines.map((l, i) => (
                 <tr key={i}>
-                  <td style={{ width: 90 }}><select className="in" value={l.rate} onChange={(e) => setLine(i, 'rate', Number(e.target.value))}>{RATES.map((r) => <option key={r} value={r}>{r} %</option>)}</select></td>
-                  <td><input className={`in r ${cls('total_ht')}`} value={l.base_ht} onChange={(e) => setLine(i, 'base_ht', e.target.value)} /></td>
-                  <td><input className={`in r ${cls('total_tva')}`} value={l.tva} onChange={(e) => setLine(i, 'tva', e.target.value)} /></td>
-                  <td style={{ width: 36 }}>{f.lines.length > 1 && <button className="btn" title="Supprimer la ligne" onClick={() => set('lines', f.lines.filter((_, j) => j !== i))}>×</button>}</td>
+                  <td className="full" style={{ width: 90 }} data-l="Taux"><select className="in" value={l.rate} onChange={(e) => setLine(i, 'rate', Number(e.target.value))}>{RATES.map((r) => <option key={r} value={r}>{r} %</option>)}</select></td>
+                  <td data-l="Base HT"><input className={`in r ${cls('total_ht')}`} value={l.base_ht} onChange={(e) => setLine(i, 'base_ht', e.target.value)} /></td>
+                  <td data-l="TVA"><input className={`in r ${cls('total_tva')}`} value={l.tva} onChange={(e) => setLine(i, 'tva', e.target.value)} /></td>
+                  <td className="end" style={{ width: 36 }}>{f.lines.length > 1 && <button className="btn" title="Supprimer la ligne" onClick={() => set('lines', f.lines.filter((_, j) => j !== i))}>×</button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -157,15 +166,15 @@ export default function Verify() {
 
           <div className="muted" style={{ fontWeight: 600, marginTop: 4 }}>Paiements (la TVA est rattachée à chaque paiement, dans le trimestre où il a lieu)</div>
           {f.payments.length > 0 && (
-            <table>
+            <table className="stack">
               <thead><tr><th>Date</th><th className="r">Montant TTC</th><th>Mode</th><th /></tr></thead>
               <tbody>
                 {f.payments.map((p, i) => (
                   <tr key={i}>
-                    <td><input className="in" type="date" value={p.date} onChange={(e) => setPay(i, 'date', e.target.value)} /></td>
-                    <td><input className="in r" inputMode="decimal" value={p.amount} onChange={(e) => setPay(i, 'amount', e.target.value)} /></td>
-                    <td><select className="in" value={p.mode} onChange={(e) => setPay(i, 'mode', e.target.value)}>{MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
-                    <td style={{ width: 36 }}><button className="btn" title="Supprimer ce paiement" onClick={() => set('payments', f.payments.filter((_, j) => j !== i))}>×</button></td>
+                    <td data-l="Date"><input className="in" type="date" value={p.date} onChange={(e) => setPay(i, 'date', e.target.value)} /></td>
+                    <td data-l="Montant TTC"><input className="in r" inputMode="decimal" value={p.amount} onChange={(e) => setPay(i, 'amount', e.target.value)} /></td>
+                    <td className="full" data-l="Mode de paiement"><select className="in" value={p.mode} onChange={(e) => setPay(i, 'mode', e.target.value)}>{MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
+                    <td className="end" style={{ width: 36 }}><button className="btn" title="Supprimer ce paiement" onClick={() => set('payments', f.payments.filter((_, j) => j !== i))}>×</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -184,15 +193,15 @@ export default function Verify() {
       {err && <div className="alert red">{err}</div>}
 
       {isNew && (
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={() => nav('/')}>Annuler</button>
+        <div className="row actionbar" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn hide-m" onClick={() => nav('/')}>Annuler</button>
           <button className="btn" disabled={busy} onClick={() => createManual(false)}>Enregistrer (à vérifier)</button>
           <button className="btn primary" disabled={busy} onClick={() => createManual(true)}>Enregistrer et valider</button>
         </div>
       )}
       {!isDup && !isNew && (
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={() => nav('/')}>Annuler</button>
+        <div className="row actionbar" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn hide-m" onClick={() => nav('/')}>Annuler</button>
           <button className="btn" disabled={busy} onClick={() => run(() => api.patch(inv.id, payload()), () => load())}>Enregistrer</button>
           <button className="btn primary" disabled={busy} onClick={() => run(() => api.validate(inv.id, payload()), () => nav('/'))}>Confirmer et valider</button>
         </div>
@@ -241,9 +250,9 @@ function DuplicatePanel({ inv, onResolve, onCancel, busy }) {
   return (
     <div className="card">
       <h2>Cette facture ressemble à une facture déjà importée ({inv.dup_kind === 'certain' ? 'doublon certain' : 'doublon probable'})</h2>
-      <table>
+      <table className="stack">
         <thead><tr><th>Critère</th><th>Cette facture</th><th>Facture existante</th><th>Résultat</th></tr></thead>
-        <tbody>{rows.map(([k, a, b]) => <tr key={k}><td>{k}</td><td>{a ?? '—'}</td><td>{b ?? '—'}</td><td>{k === 'Empreinte du fichier' ? (inv.dup_sha_identique ? '✓ identique' : '≠ différente') : same(a, b)}</td></tr>)}</tbody>
+        <tbody>{rows.map(([k, a, b]) => <tr key={k}><td className="full title">{k}</td><td data-l="Cette facture">{a ?? '—'}</td><td data-l="Facture existante">{b ?? '—'}</td><td className="full" data-l="Résultat">{k === 'Empreinte du fichier' ? (inv.dup_sha_identique ? '✓ identique' : '≠ différente') : same(a, b)}</td></tr>)}</tbody>
       </table>
       {[['ignorer', 'Ignorer le doublon', 'La facture importée est écartée du calcul (par défaut).'],
         ['remplacer', 'Remplacer l\'original', 'L\'ancienne facture est archivée, la nouvelle est à vérifier.'],

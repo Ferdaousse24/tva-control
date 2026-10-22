@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { useQuarter, mad, fdate, Banner } from '../ui.jsx'
+import { useQuarter, mad, fdate, Banner, BackBtn } from '../ui.jsx'
 
 export default function Calcul() {
   const { quarter } = useQuarter()
@@ -16,9 +16,10 @@ export default function Calcul() {
   const due = c.tva_due > 0
   return (
     <>
-      <div className="head">
+      <div className="head hasback">
+        <BackBtn to="/" />
         <div><h1>TVA du trimestre</h1><div className="sub">Étape 2 · Calculer — {c.label} (du {fdate(c.debut)} au {fdate(c.fin)}) · échéance {fdate(c.echeance)}</div></div>
-        <button className="btn primary" onClick={() => nav('/declaration')}>Comparer avec la déclaration déposée</button>
+        <button className="btn primary hide-m" onClick={() => nav('/declaration')}>Comparer avec la déclaration déposée</button>
       </div>
 
       {c.a_verifier.length > 0 && (
@@ -68,14 +69,16 @@ export default function Calcul() {
       {c.exclusions.length > 0 && (
         <section className="card">
           <h2>TVA exclue du calcul</h2>
-          <table>
+          <table className="stack">
             <thead><tr><th>Facture</th><th>Tiers</th><th className="r">TVA exclue</th><th>Motif</th></tr></thead>
             <tbody>{c.exclusions.map((x, i) => (
-              <tr key={i}><td><Link to={`/factures/${x.id}`}>{x.filename}</Link></td><td>{x.party_name || '—'}</td><td className="r mono">{mad(x.tva)}</td><td>{x.motif}</td></tr>
+              <tr key={i}><td className="full title"><Link to={`/factures/${x.id}`}>{x.filename}</Link></td><td data-l="Tiers">{x.party_name || '—'}</td><td data-l="TVA exclue" className="r mono">{mad(x.tva)}</td><td className="full" data-l="Motif">{x.motif}</td></tr>
             ))}</tbody>
           </table>
         </section>
       )}
+
+      <div className="actionbar only-m"><button className="btn primary" onClick={() => nav('/declaration')}>Comparer avec la déclaration</button></div>
     </>
   )
 }

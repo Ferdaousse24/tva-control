@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { useQuarter, mad } from '../ui.jsx'
+import { useQuarter, mad, BackBtn } from '../ui.jsx'
 
 export default function Rapport() {
   const { quarter } = useQuarter()
@@ -21,7 +21,7 @@ export default function Rapport() {
 
   return (
     <>
-      <div className="head"><div><h1>Rapport de contrôle</h1><div className="sub">{r.label} · déclaration du comptable comparée au recalcul</div></div></div>
+      <div className="head hasback"><BackBtn to="/bilan" /><div><h1>Rapport de contrôle</h1><div className="sub">{r.label} · déclaration du comptable comparée au recalcul</div></div></div>
       <div className="stats">
         <div className="stat"><span>TVA due déclarée</span><b>{mad(by.tva_due.declare)}</b></div>
         <div className="stat"><span>TVA due recalculée</span><b>{mad(by.tva_due.recalcule)}</b></div>
@@ -36,16 +36,16 @@ export default function Rapport() {
       </section>
       <section className="card">
         <h2>Détail des écarts</h2>
-        <table>
+        <table className="stack">
           <thead><tr><th>Ligne</th><th className="r">Déclaré</th><th className="r">Recalculé</th><th className="r">Écart</th><th>Statut</th></tr></thead>
           <tbody>{c.lignes.map((l) => (
-            <tr key={l.key}><td>{l.label}</td><td className="r mono">{mad(l.declare)}</td><td className="r mono">{mad(l.recalcule)}</td><td className="r mono">{l.has_ecart ? mad(Math.abs(l.ecart)) : '0'}</td>
-              <td>{!l.has_ecart ? <span className="badge b-green">OK</span> : l.explique ? <span className="badge b-blue" title={l.explique}>Expliqué</span> : <span className="badge b-amber">À vérifier</span>}</td></tr>
+            <tr key={l.key}><td className="full title">{l.label}</td><td data-l="Déclaré" className="r mono">{mad(l.declare)}</td><td data-l="Recalculé" className="r mono">{mad(l.recalcule)}</td><td data-l="Écart" className="r mono">{l.has_ecart ? mad(Math.abs(l.ecart)) : '0'}</td>
+              <td data-l="Statut">{!l.has_ecart ? <span className="badge b-green">OK</span> : l.explique ? <span className="badge b-blue" title={l.explique}>Expliqué</span> : <span className="badge b-amber">À vérifier</span>}</td></tr>
           ))}</tbody>
         </table>
       </section>
-      <div className="row" style={{ justifyContent: 'flex-end' }}>
-        <button className="btn" onClick={() => nav('/bilan')}>Retour à la comparaison</button>
+      <div className="row actionbar" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn hide-m" onClick={() => nav('/bilan')}>Retour à la comparaison</button>
         <a className="btn" href={mailto}>Envoyer au comptable</a>
         <a className="btn primary" href={`/api/quarters/${quarter.id}/rapport.pdf`}>Télécharger le PDF</a>
       </div>

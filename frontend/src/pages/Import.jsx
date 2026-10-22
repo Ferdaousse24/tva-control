@@ -4,12 +4,13 @@ import { api } from '../api'
 import { useQuarter, fmt, fdate, StatusBadge, Modal, Banner } from '../ui.jsx'
 
 export default function Import() {
-  const { quarters, quarter, select, reload } = useQuarter()
+  const { quarters, quarter, select, reload, loadDemo, demoBusy } = useQuarter()
   const nav = useNavigate()
   const [invoices, setInvoices] = useState([])
   const [showNew, setShowNew] = useState(false)
   const [errors, setErrors] = useState([])
   const [busy, setBusy] = useState('')
+  const [mdir, setMdir] = useState('achat')
 
   const load = useCallback(async () => { if (quarter) setInvoices(await api.invoices(quarter.id)) }, [quarter])
   useEffect(() => { load() }, [load])
@@ -50,7 +51,10 @@ export default function Import() {
         </div>
       </section>
 
-      <div className="grid2">
+      <MobileAdd count={(d) => count((i) => i.direction === d && !['doublon_ignore', 'remplacee'].includes(i.status))}
+        dir={mdir} setDir={setMdir} busy={busy} onFiles={onFiles} onManual={(d) => nav(`/factures/nouvelle?sens=${d}`)} />
+
+      <div className="grid2 hide-m">
         {[['vente', 'Ventes', 'Factures émises à vos clients'], ['achat', 'Achats', 'Factures reçues de vos fournisseurs']].map(([dir, title, sub]) => (
           <UploadCard key={dir} title={title} sub={sub} busy={busy === dir} onFiles={(f) => onFiles(dir, f)} onManual={() => nav(`/factures/nouvelle?sens=${dir}`)}
             count={count((i) => i.direction === dir && !['doublon_ignore', 'remplacee'].includes(i.status))} />
@@ -69,7 +73,16 @@ export default function Import() {
 
       <section className="card">
         <h2>Historique des factures importées</h2>
-        <div className="scroll">
+        <div className="hist-m">
+          {invoices.map((i) => (
+            <button key={i.id} onClick={() => nav(`/factures/${i.id}`)}>
+              <span className="f1">{i.filename || '—'}</span><StatusBadge inv={i} />
+              <span className="f2">{i.party_name || '—'} · {fdate(i.date)}</span><span className="f3 mono">{fmt(i.total_ttc, 2)} MAD</span>
+            </button>
+          ))}
+          {invoices.length === 0 && <div className="muted">Aucune facture pour ce trimestre. Ajoutez-en une ci-dessus.</div>}
+        </div>
+        <div className="scroll hist-t">
           <table>
             <thead><tr><th>Fichier</th><th>Sens</th><th>Tiers</th><th>Date</th><th className="r">TTC (MAD)</th><th>Statut</th></tr></thead>
             <tbody>
@@ -85,8 +98,31 @@ export default function Import() {
         </div>
       </section>
 
+      <button className="demolink only-m" disabled={demoBusy} onClick={loadDemo}>{demoBusy ? 'Chargement…' : 'Recharger la démonstration'}</button>
+
       {showNew && <NewQuarter onClose={() => setShowNew(false)} onCreated={async (q) => { await reload(); select(q.id); setShowNew(false) }} />}
     </>
+  )
+}
+
+function MobileAdd({ dir, setDir, busy, onFiles, onManual, count }) {
+  const cam = useRef(); const file = useRef()
+  const pick = (e) => { if (e.target.files.length) onFiles(dir, [...e.target.files]); e.target.value = '' }
+  return (
+    <section className="card only-m">
+      <h2>Ajouter une facture</h2>
+      <div className="seg" role="tablist">
+        <button className={dir === 'vente' ? 'on' : ''} onClick={() => setDir('vente')}>Ventes · {count('vente')}</button>
+        <button className={dir === 'achat' ? 'on' : ''} onClick={() => setDir('achat')}>Achats · {count('achat')}</button>
+      </div>
+      <input ref={cam} type="file" hidden accept="image/*" capture="environment" onChange={pick} />
+      <input ref={file} type="file" hidden multiple accept=".pdf,.jpg,.jpeg,.png" onChange={pick} />
+      <button className="btn primary" disabled={!!busy} onClick={() => cam.current.click()}>{busy ? 'Lecture en cours…' : 'Photographier une facture'}</button>
+      <div className="row">
+        <button className="btn" style={{ flex: 1 }} disabled={!!busy} onClick={() => file.current.click()}>Fichier</button>
+        <button className="btn" style={{ flex: 1 }} disabled={!!busy} onClick={() => onManual(dir)}>Saisir à la main</button>
+      </div>
+    </section>
   )
 }
 

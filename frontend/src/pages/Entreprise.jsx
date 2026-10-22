@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { Banner } from '../ui.jsx'
+import { Banner, BackBtn } from '../ui.jsx'
 
 const FIELDS = [
   ['raison_sociale', 'Raison sociale', 'Obligatoire'],
@@ -32,7 +32,7 @@ export default function Entreprise({ company, onSaved }) {
 
   return (
     <>
-      <div className="head"><div><h1>Fiche entreprise</h1><div className="sub">Identité fiscale utilisée dans les rapports et les contrôles. Elle ne peut pas être supprimée.</div></div></div>
+      <div className="head hasback"><BackBtn to="/" /><div><h1>Fiche entreprise</h1><div className="sub">Identité fiscale utilisée dans les rapports et les contrôles. Elle ne peut pas être supprimée.</div></div></div>
       {!company.configured && <Banner>La fiche n'a pas encore été enregistrée : les valeurs affichées sont des valeurs par défaut.</Banner>}
       <section className="card">
         <div className="grid2">
@@ -47,10 +47,10 @@ export default function Entreprise({ company, onSaved }) {
         {missing.length > 0 && <span className="hint amber">Fiche incomplète : {missing.join(', ')}.</span>}
         {err && <div className="alert red">{err}</div>}
         {ok && <div className="alert green">Fiche enregistrée.</div>}
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button className="btn primary" disabled={busy} onClick={save}>Enregistrer</button>
-        </div>
       </section>
+      <div className="row actionbar" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn primary" disabled={busy} onClick={save}>Enregistrer</button>
+      </div>
     </>
   )
 }

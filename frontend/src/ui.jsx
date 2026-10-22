@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import { Link } from 'react-router-dom'
 
 export const QuarterCtx = createContext(null)
 export const useQuarter = () => useContext(QuarterCtx)
@@ -24,6 +25,10 @@ export function Modal({ children, onClose }) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>{children}</div>
     </div>
   )
+}
+
+export function BackBtn({ to }) {
+  return <Link className="backbtn only-m" to={to} aria-label="Retour">‹</Link>
 }
 
 export function Banner({ kind = 'amber', children, action }) {

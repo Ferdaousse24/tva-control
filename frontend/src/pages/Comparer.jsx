@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { useQuarter, mad, Banner } from '../ui.jsx'
+import { useQuarter, mad, Banner, BackBtn } from '../ui.jsx'
 
 export default function Comparer() {
   const { quarter } = useQuarter()
@@ -33,9 +33,10 @@ export default function Comparer() {
 
   return (
     <>
-      <div className="head">
+      <div className="head hasback">
+        <BackBtn to="/calcul" />
         <div><h1>Comparer avec la déclaration déposée</h1><div className="sub">{c.label} · montants déclarés par le comptable vs recalcul de l'application</div></div>
-        <button className="btn primary" onClick={() => nav('/rapport')}>Générer le rapport</button>
+        <button className="btn primary hide-m" onClick={() => nav('/rapport')}>Générer le rapport</button>
       </div>
 
       {c.a_verifier > 0 && <Banner>{c.a_verifier} facture(s) non validée(s) ne sont pas dans le recalcul : le résultat peut changer après validation.</Banner>}
@@ -43,15 +44,15 @@ export default function Comparer() {
         ? <Banner kind="green"><b>Aucun écart.</b> La déclaration est cohérente avec le recalcul.</Banner>
         : <Banner kind="red"><span className="badge b-red">{c.nb_ecarts} écart(s)</span> Écart total de {mad(c.ecart_tva_due)} : la TVA due déclarée est <b>{sens}</b> au recalcul.</Banner>}
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table>
+      <div className="card plain-m" style={{ padding: 0, overflow: 'hidden' }}>
+        <table className="stack">
           <thead><tr><th>Rubrique</th><th className="r">Déclaré (MAD)</th><th className="r">Recalculé (MAD)</th><th className="r">Écart (MAD)</th><th /></tr></thead>
           <tbody>
             {c.lignes.map((r) => (
               <tr key={r.key} className={r.has_ecart ? 'bad' : ''} style={r.key === 'tva_due' ? { fontWeight: 700 } : null}>
-                <td>{r.label}</td><td className="r mono">{mad(r.declare)}</td><td className="r mono">{mad(r.recalcule)}</td>
-                <td className="r"><span className={`badge ${r.has_ecart ? 'b-red' : 'b-green'}`}>{r.has_ecart ? mad(Math.abs(r.ecart)) : '0'}</span></td>
-                <td>{r.explique && <span className="badge b-blue" title={r.explique}>Expliqué</span>}</td>
+                <td className="full title">{r.label}</td><td data-l="Déclaré (MAD)" className="r mono">{mad(r.declare)}</td><td data-l="Recalculé (MAD)" className="r mono">{mad(r.recalcule)}</td>
+                <td data-l="Écart (MAD)" className="r"><span className={`badge ${r.has_ecart ? 'b-red' : 'b-green'}`}>{r.has_ecart ? mad(Math.abs(r.ecart)) : '0'}</span></td>
+                <td className="end">{r.explique && <span className="badge b-blue" title={r.explique}>Expliqué</span>}</td>
               </tr>
             ))}
           </tbody>
@@ -89,6 +90,8 @@ export default function Comparer() {
           ) : <div className="muted">Pas de déclaration de l'année précédente pour ce trimestre.</div>}
         </section>
       </div>
+
+      <div className="actionbar only-m"><button className="btn primary" onClick={() => nav('/rapport')}>Générer le rapport</button></div>
     </>
   )
 }
